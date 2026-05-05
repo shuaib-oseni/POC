@@ -14,19 +14,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Semgrep
-        run: pip3 install semgrep
-
       - name: Run Semgrep
-        run: |
-          /Users/Shuaiboseni/Library/Python/3.9/bin/semgrep scan \
-            --config=auto \
-            --sarif > results.sarif 2>semgrep_stderr.txt
-          echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
-          echo "--- Stderr output: ---"
-          cat semgrep_stderr.txt
-          echo "--- First 200 chars of results.sarif: ---"
-          head -c 200 results.sarif
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: auto
+          generateSarif: "1"
+          sarifFile: results.sarif
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
       - name: Upload SARIF artifact
         uses: actions/upload-artifact@v4
@@ -70,7 +65,7 @@ jobs:
 
       - name: Install Gitleaks
         run: |
-          brew install gitleaks || true
+          brew install gitleaks || brew upgrade gitleaks || true
           gitleaks version
 
       - name: Run Gitleaks
