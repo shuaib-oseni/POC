@@ -37,16 +37,26 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
+          SARIF_FILE=$(find $HOME -name "semgrep.sarif" 2>/dev/null | head -1)
+          echo "Found SARIF at: $SARIF_FILE"
           curl -s -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
             -F "scan_type=SARIF" \
             -F "engagement=${ENGAGEMENT_ID}" \
-            -F "file=@$GITHUB_WORKSPACE/semgrep.sarif" \
+            -F "file=@${SARIF_FILE}" \
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
             -F "scan_date=$(date +%Y-%m-%d)"
+
+      - name: Debug - find sarif file
+        run: |
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "HOME: $HOME"
+          find $HOME -name "*.sarif" 2>/dev/null
+          find /tmp -name "*.sarif" 2>/dev/null
+          ls -la
 
   gitleaks:
     name: Gitleaks Secret Scan
@@ -78,12 +88,14 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
+          GL_FILE=$(find $HOME -name "gitleaks.json" 2>/dev/null | head -1)
+          echo "Found Gitleaks report at: $GL_FILE"
           curl -s -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
             -F "scan_type=Gitleaks Scan" \
             -F "engagement=${ENGAGEMENT_ID}" \
-            -F "file=@$GITHUB_WORKSPACE/gitleaks.json" \
+            -F "file=@${GL_FILE}" \
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
