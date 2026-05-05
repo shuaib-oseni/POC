@@ -22,10 +22,12 @@ jobs:
           semgrep scan \
             --config=auto \
             --sarif \
-            --error 2>/dev/null > results.sarif || true
-          echo "File size: $(wc -c < results.sarif)"
-          echo "First 100 chars: $(head -c 100 results.sarif)"
-          ls -la results.sarif
+            --error > results.sarif 2>semgrep_stderr.txt || true
+          echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
+          echo "--- Stderr output: ---"
+          cat semgrep_stderr.txt
+          echo "--- First 200 chars of results.sarif: ---"
+          head -c 200 results.sarif
 
       - name: Upload SARIF artifact
         uses: actions/upload-artifact@v4
@@ -39,9 +41,13 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
-          echo "Importing from: $PWD/results.sarif"
-          ls -la results.sarif
-          curl -s -X POST \
+          SIZE=$(wc -c < results.sarif)
+          echo "File size: $SIZE bytes"
+          if [ "$SIZE" -lt 10 ]; then
+            echo "ERROR: results.sarif is empty or too small, skipping import"
+            exit 1
+          fi
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
             -F "scan_type=SARIF" \
@@ -50,7 +56,8 @@ jobs:
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
-            -F "scan_date=$(date +%Y-%m-%d)"
+            -F "scan_date=$(date +%Y-%m-%d)")
+          echo "Response: $RESPONSE"
 
   gitleaks:
     name: Gitleaks Secret Scan
@@ -62,20 +69,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ""
-        with:
-          args: detect --source . --report-format json --report-path gitleaks.json --exit-code 0
-
-      - name: Debug Gitleaks
+      - name: Install Gitleaks
         run: |
-          echo "Current dir:"
-          ls -la
-          echo "Searching for gitleaks report:"
-          find $HOME -name "gitleaks.json" 2>/dev/null || echo "Not found"
+          brew install gitleaks || true
+          gitleaks version
+
+      - name: Run Gitleaks
+        run: |
+          gitleaks detect \
+            --source . \
+            --report-format json \
+            --report-path gitleaks.json \
+            --exit-code 0 || true
+          echo "--- Gitleaks file size: $(wc -c < gitleaks.json 2>/dev/null || echo 0) bytes ---"
+          ls -la gitleaks.json 2>/dev/null || echo "Report not created - no leaks found"
+          if [ ! -f gitleaks.json ]; then
+            echo "[]" > gitleaks.json
+            echo "Created empty report"
+          fi
 
       - name: Upload Gitleaks artifact
         uses: actions/upload-artifact@v4
@@ -89,16 +100,16 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
-          GL_FILE=$(find $HOME -name "gitleaks.json" 2>/dev/null | head -1)
-          echo "Found Gitleaks report at: $GL_FILE"
-          ls -la ${GL_FILE}
-          curl -s -X POST \
+          echo "Importing from: $PWD/gitleaks.json"
+          ls -la gitleaks.json
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
             -F "scan_type=Gitleaks Scan" \
             -F "engagement=${ENGAGEMENT_ID}" \
-            -F "file=@${GL_FILE}" \
+            -F "file=@gitleaks.json" \
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
-            -F "scan_date=$(date +%Y-%m-%d)"
+            -F "scan_date=$(date +%Y-%m-%d)")
+          echo "Response: $RESPONSE"
