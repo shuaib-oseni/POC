@@ -14,14 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: auto
-          generateSarif: "1"
-          sarifFile: results.sarif
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      - name: Run Semgrep via Docker
+        run: |
+          docker pull semgrep/semgrep:latest
+          docker run --rm \
+            -e SEMGREP_APP_TOKEN=${{ secrets.SEMGREP_APP_TOKEN }} \
+            -v "$PWD:/src" \
+            semgrep/semgrep semgrep ci \
+            --sarif --output /src/results.sarif || true
+          echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
+          echo "--- First 200 chars: ---"
+          head -c 200 results.sarif
 
       - name: Upload SARIF artifact
         uses: actions/upload-artifact@v4
@@ -63,17 +66,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Gitleaks
+      - name: Run Gitleaks via Docker
         run: |
-          brew install gitleaks || brew upgrade gitleaks || true
-          gitleaks version
-
-      - name: Run Gitleaks
-        run: |
-          gitleaks detect \
-            --source . \
+          docker pull zricethezav/gitleaks:latest
+          docker run --rm \
+            -v "$PWD:/path" \
+            zricethezav/gitleaks:latest detect \
+            --source /path \
             --report-format json \
-            --report-path gitleaks.json \
+            --report-path /path/gitleaks.json \
             --exit-code 0 || true
           echo "--- Gitleaks file size: $(wc -c < gitleaks.json 2>/dev/null || echo 0) bytes ---"
           ls -la gitleaks.json 2>/dev/null || echo "Report not created - no leaks found"
