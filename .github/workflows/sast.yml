@@ -22,16 +22,10 @@ jobs:
           semgrep scan \
             --config=auto \
             --sarif \
-            --output=$PWD/results.sarif \
-            --error || true
-          echo "Semgrep exit code: $?"
-          ls -la $PWD/results.sarif || echo "File not created"
-
-      - name: Debug Semgrep
-        run: |
-          echo "Current dir:"
-          ls -la
-          echo "PWD: $PWD"
+            --error 2>/dev/null > results.sarif || true
+          echo "File size: $(wc -c < results.sarif)"
+          echo "First 100 chars: $(head -c 100 results.sarif)"
+          ls -la results.sarif
 
       - name: Upload SARIF artifact
         uses: actions/upload-artifact@v4
@@ -45,12 +39,14 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
+          echo "Importing from: $PWD/results.sarif"
+          ls -la results.sarif
           curl -s -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
             -F "scan_type=SARIF" \
             -F "engagement=${ENGAGEMENT_ID}" \
-            -F "file=@$PWD/results.sarif" \
+            -F "file=@results.sarif" \
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
@@ -72,22 +68,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ""
         with:
-          args: detect --source . --report-format json --report-path ${{ github.workspace }}/gitleaks.json --exit-code 0
+          args: detect --source . --report-format json --report-path gitleaks.json --exit-code 0
 
       - name: Debug Gitleaks
         run: |
           echo "Current dir:"
           ls -la
-          echo "Workspace: ${{ github.workspace }}"
-          ls -la ${{ github.workspace }}/gitleaks.json 2>/dev/null || echo "gitleaks.json not found in workspace"
-          ls -la /tmp/*.json 2>/dev/null || echo "No json in /tmp"
-          find $HOME -name "gitleaks.json" 2>/dev/null || echo "gitleaks.json not found anywhere"
+          echo "Searching for gitleaks report:"
+          find $HOME -name "gitleaks.json" 2>/dev/null || echo "Not found"
 
       - name: Upload Gitleaks artifact
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
-          path: ${{ github.workspace }}/gitleaks.json
+          path: gitleaks.json
 
       - name: Import to DefectDojo
         env:
@@ -97,6 +91,7 @@ jobs:
         run: |
           GL_FILE=$(find $HOME -name "gitleaks.json" 2>/dev/null | head -1)
           echo "Found Gitleaks report at: $GL_FILE"
+          ls -la ${GL_FILE}
           curl -s -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
