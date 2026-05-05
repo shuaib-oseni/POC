@@ -15,11 +15,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Semgrep
-        run: pip3 install semgrep
+        run: |
+          pip3 install semgrep
+          echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
 
       - name: Run Semgrep
         run: |
-          semgrep scan \
+          echo "PATH: $PATH"
+          which semgrep || echo "semgrep not in PATH, using python3 -m semgrep"
+          python3 -m semgrep scan \
             --config=auto \
             --sarif \
             --error > results.sarif 2>semgrep_stderr.txt || true
