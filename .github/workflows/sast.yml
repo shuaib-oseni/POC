@@ -15,18 +15,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Semgrep
-        run: |
-          pip3 install semgrep
-          echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
+        run: pip3 install semgrep
 
       - name: Run Semgrep
         run: |
-          echo "PATH: $PATH"
-          which semgrep || echo "semgrep not in PATH, using python3 -m semgrep"
-          python3 -m semgrep scan \
+          /Users/Shuaiboseni/Library/Python/3.9/bin/semgrep scan \
             --config=auto \
-            --sarif \
-            --error > results.sarif 2>semgrep_stderr.txt || true
+            --sarif > results.sarif 2>semgrep_stderr.txt
           echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
           echo "--- Stderr output: ---"
           cat semgrep_stderr.txt
