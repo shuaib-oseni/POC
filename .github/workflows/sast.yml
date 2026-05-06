@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main", "develop"]
   pull_request:
+    branches: ["main", "develop"]
 
 jobs:
   semgrep:
@@ -23,7 +24,6 @@ jobs:
             semgrep/semgrep semgrep ci \
             --sarif --output /src/results.sarif || true
           echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
-          echo "--- First 200 chars: ---"
           head -c 200 results.sarif
 
       - name: Upload SARIF artifact
@@ -55,6 +55,21 @@ jobs:
             -F "close_old_findings=true" \
             -F "scan_date=$(date +%Y-%m-%d)")
           echo "Response: $RESPONSE"
+
+      - name: Fail pipeline if vulnerabilities found
+        run: |
+          FINDING_COUNT=$(cat results.sarif | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          total = sum(len(run.get('results', [])) for run in data.get('runs', []))
+          print(total)
+          " 2>/dev/null || echo "0")
+          echo "Semgrep findings count: $FINDING_COUNT"
+          if [ "$FINDING_COUNT" -gt 0 ]; then
+            echo "FAIL: $FINDING_COUNT vulnerability/vulnerabilities found. Review findings in DefectDojo."
+            exit 1
+          fi
+          echo "PASS: No vulnerabilities found."
 
   gitleaks:
     name: Gitleaks Secret Scan
@@ -108,3 +123,17 @@ jobs:
             -F "close_old_findings=true" \
             -F "scan_date=$(date +%Y-%m-%d)")
           echo "Response: $RESPONSE"
+
+      - name: Fail pipeline if secrets found
+        run: |
+          SECRET_COUNT=$(cat gitleaks.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          print(len(data) if isinstance(data, list) else 0)
+          " 2>/dev/null || echo "0")
+          echo "Gitleaks findings count: $SECRET_COUNT"
+          if [ "$SECRET_COUNT" -gt 0 ]; then
+            echo "FAIL: $SECRET_COUNT secret(s) found. Review findings in DefectDojo."
+            exit 1
+          fi
+          echo "PASS: No secrets found."
