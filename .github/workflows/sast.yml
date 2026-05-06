@@ -56,6 +56,117 @@ jobs:
             -F "scan_date=$(date +%Y-%m-%d)")
           echo "Response: $RESPONSE"
 
+      - name: Install Python requests
+        run: pip3 install requests
+
+      - name: Enrich findings in DefectDojo
+        env:
+          DOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+          ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
+        run: |
+          python3 << 'EOF'
+          import json, os, requests
+
+          DOJO_URL = os.environ["DOJO_URL"]
+          DOJO_KEY = os.environ["DOJO_KEY"]
+          ENGAGEMENT_ID = os.environ["ENGAGEMENT_ID"]
+          headers = {"Authorization": f"Token {DOJO_KEY}"}
+
+          with open("results.json") as f:
+              data = json.load(f)
+
+          for result in data.get("results", []):
+              extra = result.get("extra", {})
+              meta = extra.get("metadata", {})
+              message = extra.get("message", "")
+              check_id = result.get("check_id", "")
+
+              # extract actionable fix sentences from message
+              guidance_keywords = ["should", "use ", "instead", "in order to",
+                                   "replace", "avoid", "ensure", "make sure",
+                                   "do not", "don't", "never", "always"]
+              sentences = message.replace(". ", ".\n").split("\n")
+              guidance_lines = [
+                  s.strip() for s in sentences
+                  if any(k in s.lower() for k in guidance_keywords)
+                  and len(s.strip()) > 10
+              ]
+
+              # build mitigation
+              mitigation = "How to fix:\n"
+              if guidance_lines:
+                  mitigation += "\n".join(f"• {l}" for l in guidance_lines)
+              else:
+                  mitigation += message  # fallback to full message
+
+              mitigation += f"\n\nLikelihood: {meta.get('likelihood', 'N/A')} | "
+              mitigation += f"Impact: {meta.get('impact', 'N/A')} | "
+              mitigation += f"Confidence: {meta.get('confidence', 'N/A')}"
+
+              # build references
+              refs = meta.get("references", [])
+              source = meta.get("source", "")
+              shortlink = meta.get("shortlink", "")
+              references = ""
+              if source:
+                  references += f"Rule Source: {source}\n"
+              if shortlink:
+                  references += f"Semgrep Link: {shortlink}\n"
+              if refs:
+                  references += "\nFurther Reading:\n" + "\n".join(refs)
+
+              # fetch findings for this engagement
+              search_resp = requests.get(
+                  f"{DOJO_URL}/api/v2/findings/",
+                  headers=headers,
+                  params={"engagement": ENGAGEMENT_ID, "limit": 200}
+              )
+
+              if search_resp.status_code != 200:
+                  print(f"Failed to fetch findings: {search_resp.status_code}")
+                  continue
+
+              findings = search_resp.json().get("results", [])
+              rule_name = check_id.split(".")[-1].lower()
+
+              for finding in findings:
+                  title = finding.get("title", "").lower()
+                  desc = finding.get("description", "").lower()
+                  finding_id = finding.get("id")
+
+                  if rule_name in title or \
+                     rule_name in desc or \
+                     message[:40].lower() in desc:
+
+                      # build enriched description with CWE and OWASP
+                      cwes = meta.get("cwe", [])
+                      owasps = meta.get("owasp", [])
+                      original_desc = finding.get("description", "")
+                      enriched_desc = original_desc
+                      if cwes:
+                          enriched_desc += f"\n\nCWE: {', '.join(cwes)}"
+                      if owasps:
+                          enriched_desc += f"\nOWASP: {', '.join(owasps)}"
+
+                      patch_resp = requests.patch(
+                          f"{DOJO_URL}/api/v2/findings/{finding_id}/",
+                          headers=headers,
+                          json={
+                              "mitigation": mitigation,
+                              "references": references,
+                              "description": enriched_desc,
+                          }
+                      )
+                      if patch_resp.status_code in [200, 201]:
+                          print(f"✅ Enriched finding {finding_id}: {finding.get('title')}")
+                      else:
+                          print(f"❌ Failed to enrich {finding_id}: {patch_resp.text}")
+                      break
+
+          print("Enrichment complete.")
+          EOF
+
       - name: Fail pipeline if vulnerabilities found
         run: |
           FINDING_COUNT=$(cat results.json | python3 -c "
