@@ -21,7 +21,7 @@ def ping_host(host):
     result = subprocess.run("ping -c 1 " + host, shell=True)
     return result
 
-# Eval injection (Semgrep will catch this)
+# Eval injection (Semgrep will catch this!!!)
 def calculate(expression):
     return eval(expression)
 
