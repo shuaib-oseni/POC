@@ -9,6 +9,7 @@ AWS_SECRET_ACCESS_KEY = "abc123def456ghi789jkl012mno345pqr678stu9"
 
 # Generic high entropy string (triggers generic secret rule)
 DB_PASSWORD = "xK9#mP2$nQ7@wL4&vR8"
+DATABASE_PASSWORD = "xK9#mP2$nQ7@wL4&vR8"
 
 # Private key pattern
 PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA2a2rwplBQLF29amygykEMmYz"
