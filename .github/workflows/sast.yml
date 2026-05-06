@@ -22,15 +22,15 @@ jobs:
             -e SEMGREP_APP_TOKEN=${{ secrets.SEMGREP_APP_TOKEN }} \
             -v "$PWD:/src" \
             semgrep/semgrep semgrep ci \
-            --sarif --output /src/results.sarif || true
-          echo "--- SARIF file size: $(wc -c < results.sarif) bytes ---"
-          head -c 200 results.sarif
+            --json --output /src/results.json || true
+          echo "--- JSON file size: $(wc -c < results.json) bytes ---"
+          head -c 200 results.json
 
-      - name: Upload SARIF artifact
+      - name: Upload Semgrep artifact
         uses: actions/upload-artifact@v4
         with:
-          name: semgrep-sarif
-          path: results.sarif
+          name: semgrep-json
+          path: results.json
 
       - name: Import to DefectDojo
         env:
@@ -38,18 +38,18 @@ jobs:
           DOJO_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
           ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
         run: |
-          SIZE=$(wc -c < results.sarif)
+          SIZE=$(wc -c < results.json)
           echo "File size: $SIZE bytes"
           if [ "$SIZE" -lt 10 ]; then
-            echo "ERROR: results.sarif is empty or too small, skipping import"
+            echo "ERROR: results.json is empty or too small, skipping import"
             exit 1
           fi
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
             "${DOJO_URL}/api/v2/import-scan/" \
             -H "Authorization: Token ${DOJO_KEY}" \
-            -F "scan_type=SARIF" \
+            -F "scan_type=Semgrep JSON Report" \
             -F "engagement=${ENGAGEMENT_ID}" \
-            -F "file=@results.sarif" \
+            -F "file=@results.json" \
             -F "active=true" \
             -F "verified=false" \
             -F "close_old_findings=true" \
@@ -58,11 +58,10 @@ jobs:
 
       - name: Fail pipeline if vulnerabilities found
         run: |
-          FINDING_COUNT=$(cat results.sarif | python3 -c "
+          FINDING_COUNT=$(cat results.json | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          total = sum(len(run.get('results', [])) for run in data.get('runs', []))
-          print(total)
+          print(len(data.get('results', [])))
           " 2>/dev/null || echo "0")
           echo "Semgrep findings count: $FINDING_COUNT"
           if [ "$FINDING_COUNT" -gt 0 ]; then
